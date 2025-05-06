@@ -22,6 +22,8 @@ from jobflow import Flow, Maker, Response, job
 
 from atomate2.common.jobs.eos import MPMorphPVPostProcess, _apply_strain_to_structure
 
+from atomate2.common.jobs.mpmorph import extract_trajectory_frames
+
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
@@ -166,12 +168,17 @@ class EquilibriumVolumeMaker(Maker):
                 prev_dir=None,
             )
             relaxed_vol = len(working_outputs["relax"]["volume"])
-            md_job.name = f"{self.name} {md_job.name} {relaxed_vol + 1}"
+            md_job.name = f"Equil Vol {md_job.name} {relaxed_vol + 1}"
 
-            working_outputs["relax"]["energies"].append(md_job.output.output.energy)
+            postprocess_job = extract_trajectory_frames(md_job.output)
+            postprocess_job.name = f" process_traj_frames {relaxed_vol + 1}"
+
+            working_outputs["relax"]["energies"].append(postprocess_job.output.energy)
             working_outputs["relax"]["volume"].append(md_job.output.structure.volume)
-            working_outputs["relax"]["stress"].append(md_job.output.output.stress)
+            working_outputs["relax"]["stress"].append(postprocess_job.output.stress)
+            working_outputs["relax"]["pressure"].append(postprocess_job.output.pressure)
             eos_jobs.append(md_job)
+            eos_jobs.append(postprocess_job)
 
         recursive = self.make(
             structure=structure,

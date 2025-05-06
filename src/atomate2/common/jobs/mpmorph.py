@@ -29,6 +29,109 @@ if not _DEFAULT_AVG_VOL_FILE.parents[0].exists():
 _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 
 
+def extract_trajectory_frames_draft(job_output): #: JobflowOutputReference):
+    trajectory_data = {"average energy": [],
+                       "average temperature": [],
+                       "average pressure": [],} # TODO: think of anything else to add
+
+    # see if SETTINGS.JobStore, I guess we could use that
+    # see if you can resolve the output reference
+    from jobflow import SETTINGS
+    from jobflow.core.reference import OnMissing
+    store = SETTINGS.JOB_STORE
+    # is there potentially a local store you should be using instead?
+    my_resolve = job_output.resolve(store, on_missing = OnMissing.NONE)#TODO figure out store, on_missing = OnMissing.None)
+    # hmmm, not sure what to do about the store it is not mentioned in flows/mpmorph.py
+    # so I don't know how easy it would be to be referencing in this job
+    # so where does the store end up getting used?
+    if my_resolve is None:
+        return None # could actually potentially turn the empty trajectory data, can play more if this works
+
+
+    # commenting out these lines b/c error, want to see if rest of code runs
+    #if job_output["vasp_object"]: # means it's aimd
+    trajectory = job_output.vasp_objects['trajectory'] 
+    #print(trajectory)
+    #trajectory = job_output.vasp_objects.trajectory
+    #elif job_output["ase_object"]: # check if its ASE/MLFF MD
+    #    trajectory = job_output.ase_objects['trajectory'] # need to check ouw this goes
+
+    # need to go through the trajectory and figure out the average energy and stuff
+    # get the length of the trajectory
+    # take last 10% of frames? idk what did old mpmorph do to get the average
+    # need to figure out which energy to get
+
+    length = len(trajectory)
+    num_last_frames = int(length * 0.20) + 1 # will average over last 10% of frames
+
+    frames = trajectory.frame_properties
+    energies = []
+    temperatures = []
+    pressures = []
+    for frame in frames[-num_last_frames:]:
+        energies.append(frame["total"]) # TODO: check if "total" is appropriate or should be e_fr_energy?
+        temperatures.append(frame["total"])
+        # calculate pressure
+        stress = frame["stress"]
+        stress_matrix = np.matrix(stress)
+        pressure = stress_matrix.trace()
+        pressures.append(pressure)
+
+
+    trajectory_data["average energy"] = np.mean(energies)
+    trajectory_data["average temperature"] = np.mean(temperatures)
+    trajectory_data["average pressure"] = np.mean(pressures)
+
+    return trajectory_data
+
+from jobflow import job
+@job()
+def extract_trajectory_frames(md_job_output):
+    if md_job_output.vasp_objects:
+        trajectory = md_job_output.vasp_objects['trajectory']
+    elif md_job_output.ase_objects:
+        trajectory = md_job_output.ase_objects['trajectory']
+    trajectory_data = {"energy": [],
+                       "temperature": [],
+                       "pressure": [],
+                       "stress": []}
+
+    length = len(trajectory)
+    num_last_frames = int(length * 0.10) + 1 # will average over last 10% of frames
+
+    frames = trajectory.frame_properties
+    energies = []
+    temperatures = []
+    pressures = []
+    stresses = []
+    for frame in frames[-num_last_frames:]:
+        energies.append(frame["e_wo_entrp"])
+        temperatures.append(frame["temperature"])
+        # calculate pressure
+        stress = frame["stress"]
+        stress_matrix = np.matrix(stress)
+        stresses.append(stress)
+        pressure = stress_matrix.trace()
+        pressures.append(pressure/3)
+    
+    sum_stresses = np.zeros((3, 3))
+    num_points = len(stresses)
+    for stress_matrix in stresses:
+        for i in [0, 1, 2]:
+            for j in [0, 1, 2]:
+                sum_stresses[i][j] = sum_stresses[i][j] + stress_matrix[i][j]
+    average_stress = np.zeros((3, 3))
+    for i in [0, 1, 2]:
+        for j in [0, 1, 2]:
+            average_stress[i][j] = sum_stresses[i][j]/num_points
+
+    trajectory_data["energy"] = np.mean(energies)
+    trajectory_data["temperature"] = np.mean(temperatures)
+    trajectory_data["pressure"] = np.mean(pressures)
+    trajectory_data["stress"] = average_stress
+
+    return trajectory_data
+
 def _get_average_volumes_file(
     chunk_size: int = 2048, timeout: float = 60
 ) -> pd.DataFrame:
