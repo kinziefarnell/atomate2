@@ -29,64 +29,9 @@ if not _DEFAULT_AVG_VOL_FILE.parents[0].exists():
 _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 
 
-def extract_trajectory_frames_draft(job_output): #: JobflowOutputReference):
-    trajectory_data = {"average energy": [],
-                       "average temperature": [],
-                       "average pressure": [],} # TODO: think of anything else to add
-
-    # see if SETTINGS.JobStore, I guess we could use that
-    # see if you can resolve the output reference
-    from jobflow import SETTINGS
-    from jobflow.core.reference import OnMissing
-    store = SETTINGS.JOB_STORE
-    # is there potentially a local store you should be using instead?
-    my_resolve = job_output.resolve(store, on_missing = OnMissing.NONE)#TODO figure out store, on_missing = OnMissing.None)
-    # hmmm, not sure what to do about the store it is not mentioned in flows/mpmorph.py
-    # so I don't know how easy it would be to be referencing in this job
-    # so where does the store end up getting used?
-    if my_resolve is None:
-        return None # could actually potentially turn the empty trajectory data, can play more if this works
-
-
-    # commenting out these lines b/c error, want to see if rest of code runs
-    #if job_output["vasp_object"]: # means it's aimd
-    trajectory = job_output.vasp_objects['trajectory'] 
-    #print(trajectory)
-    #trajectory = job_output.vasp_objects.trajectory
-    #elif job_output["ase_object"]: # check if its ASE/MLFF MD
-    #    trajectory = job_output.ase_objects['trajectory'] # need to check ouw this goes
-
-    # need to go through the trajectory and figure out the average energy and stuff
-    # get the length of the trajectory
-    # take last 10% of frames? idk what did old mpmorph do to get the average
-    # need to figure out which energy to get
-
-    length = len(trajectory)
-    num_last_frames = int(length * 0.20) + 1 # will average over last 10% of frames
-
-    frames = trajectory.frame_properties
-    energies = []
-    temperatures = []
-    pressures = []
-    for frame in frames[-num_last_frames:]:
-        energies.append(frame["total"]) # TODO: check if "total" is appropriate or should be e_fr_energy?
-        temperatures.append(frame["total"])
-        # calculate pressure
-        stress = frame["stress"]
-        stress_matrix = np.matrix(stress)
-        pressure = stress_matrix.trace()
-        pressures.append(pressure)
-
-
-    trajectory_data["average energy"] = np.mean(energies)
-    trajectory_data["average temperature"] = np.mean(temperatures)
-    trajectory_data["average pressure"] = np.mean(pressures)
-
-    return trajectory_data
-
 from jobflow import job
 @job()
-def extract_trajectory_frames(md_job_output):
+def extract_trajectory_frames(md_job_output, converge_check=False):
     if md_job_output.vasp_objects:
         trajectory = md_job_output.vasp_objects['trajectory']
     elif md_job_output.ase_objects:
@@ -98,6 +43,9 @@ def extract_trajectory_frames(md_job_output):
 
     length = len(trajectory)
     num_last_frames = int(length * 0.10) + 1 # will average over last 10% of frames
+
+    if converge_check:
+        num_last_frames = length
 
     frames = trajectory.frame_properties
     energies = []
@@ -130,7 +78,52 @@ def extract_trajectory_frames(md_job_output):
     trajectory_data["pressure"] = np.mean(pressures)
     trajectory_data["stress"] = average_stress
 
+    if converge_check:
+        num_atoms = len(trajectory[0].species)
+        # check ionic convergence for energies
+        # copying code from mpmorph
+        norm_energies = energies/num_atoms
+        mu, std = stats.norm.fit(norm_energies)
+        mu1, std1 = stats.norm.fit(norm_energies[0:int(len(norm_energies)/2)])
+        mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies)/2):])
+        ionic = np.abs((mu2 - mu1)/mu)
+        trajectory_data["ionic"] = ionic
+
     return trajectory_data
+'''
+@job
+def convergence_check(md_job_output):
+    if md_job_output.vasp_objects:
+        traj = md_job_output.vasp_objects['trajectory']
+    elif md_job_output.ase_objects:
+        traj = md_job_output.ase_objects['trajectory']
+    
+    # so you have your trajectory
+    convergence_data = {"pressure": 0,
+                        "ionic": }
+
+    # extract the pressure from the trajectory - average pressure over run
+    pressures = []
+
+
+
+    working_outputs["avg-pressure"] = np.mean(pressures)
+
+    # extract the energy from the trajectory
+
+    # calculate min, max, and average energy 
+    np.max(energies)
+    np.min(energies)
+    np.mean(energies)
+
+    # figure out how they do this second check in old mpmorph
+    working_outputs["energy_diff"] = max - min
+
+    # figure out what you need for third check in mpmorph
+        
+    return working_outputs
+
+'''
 
 def _get_average_volumes_file(
     chunk_size: int = 2048, timeout: float = 60

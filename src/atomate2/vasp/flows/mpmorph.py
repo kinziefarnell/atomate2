@@ -128,6 +128,9 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
             name="MP Morph VASP Equilibrium Volume Maker", md_maker=conv_md_maker
         )
 
+# TODO: add convergence_maker call here; can use conv_md_maker as well
+# not sure how this gets appropriate chained with production run
+
         if n_steps_per_production_run is None:
             n_steps_per_production_run = n_steps_production
             n_production_runs = 1

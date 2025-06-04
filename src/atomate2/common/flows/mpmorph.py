@@ -191,6 +191,124 @@ class EquilibriumVolumeMaker(Maker):
         return Response(replace=new_eos_flow, output=recursive.output)
 
 
+# insert convergence maker here
+@dataclass
+class ConvergenceMDMaker():# put in appropriate args):
+    # Add in appropriate notes on what this maker does
+    # should take a Maker object that you will use to define the md runs
+    """
+    Converge structure using NVT + convergence runs
+
+    Parameters
+    name : str = "Convergence Maker"
+        Name of the flow
+    md_maker: Maker
+        Maker to perform NVT MD runs
+    rescale parameters: float? # TODO: figure out what should be included here
+        Parameter to change volume by between pressure runs
+    convergence parameters: dict
+        parameters to identify convergence
+    TODO: whatever else to add here, i.e. max energy runs
+    """
+
+    md_maker: Maker
+    name: str = "Convergence Maker"
+    rescale_params: float = 0.0000005 # "beta" parameter in old mpmorph, 
+    convergence params: dict = {"density": 0.0005, "ionic": 0.0005} # TODO - check if correct val for density
+    max_energy_runs: float = 3 
+
+    # define post_init method
+    # I'm not really sure why the post_init is there, but the other classes seem to have it
+    def __post_init__(self) -> None:
+        """Ensure required class attributes are set. """
+        if self.md_maker is None:
+            raise ValueError("You must specify 'md_maker' to use this flow.")
+
+    # define make function
+    @job
+    make(
+            self,
+            structure,
+            prev_dir,
+            working_outputs
+            )
+    rescale_struct = False
+    if working_outputs is None:
+        # define working outputs
+        working_outputs = {key: [] for key in ("pressure", "ionic")}
+    else:
+        # do check for pressure
+        if working_outputs["pressure"] < pressure: # TODO add args somewhere that define pressure and ionic required for convergence
+            converged_pressure = True
+        else:
+            converged_pressure = False
+            rescale_struct = True
+
+        # check for energy differences # TODO: check if you should be rescaling structure when energy is unconverged, no?
+        if working_outputs["ionic"] < ionic:
+            converged_ionic = True
+        else:
+            converged_ionic = False
+        
+        # TODO: third check in old mpmorph for "kinetic", idk
+
+        if converged_pressure and converged_energy:
+            # no more convergence runs
+
+
+    #set up md run
+    if rescale_struct:
+        # need to rescale structure
+        # set up some kind of deformation matrix with rescale params
+        # apply that
+        structure = deformed_structure
+    # else, will just rerun same structure for longer
+    self.md_maker.make(structure = structure, prev_dir = None)
+    md_job.name = f"convergence run" # TODO: add something to indicate if pressure/ionic run
+
+    post_process = extract_trajectory_frames(md_job.output, check_convergence = True)
+    post_process.name = f"postprocess convergence run"
+    # make extract trajectory frames to take md maker output
+
+    working_outputs["pressure"] = post_process.output.pressure
+    working_outputs["ionic"] = post_process.output.ionic
+
+    # set up recursive call for function
+    recursive = self.make(
+            structure,
+            prev_dir = None,
+            working_outputs = working_outputs,
+            )
+
+    new_eos_flow = Flow([md_job, post_process, recursive], output = recursive.output)
+
+    # return response which lists flow for md-jobs, convergence-check, and recursive make call
+    return Response(replace = new_eos_flow, output = recursive.output)
+
+
+    # you can define the make function with a job decorator and it will implicitly become a job object
+    # inputs to make: structure, working outputs
+
+        # make job to run MD for 1000 steps
+
+        # make job that does checks on the MD - could add this in common/jobs/mpmorph.py, yes?
+
+        # well, let's at least write the pseudocode for that job and can put it in the appropriate place as we figure out
+
+        # take MD pressure - is it less than 5<
+        # if less than 5, then that's good
+        # if not less than 5, we need more convergence runs
+
+
+        # does this need to be a job or is it possible to do the processing here?
+
+        # because I notice that EquilibriumVolumeMaker has lots of processing and it's like a job in the flow?
+
+        # some aspect of this should be recursive I think
+
+
+
+
 @dataclass
 class MPMorphMDMaker(Maker, metaclass=ABCMeta):
     """Base MPMorph flow for amorphous solid equilibration.
