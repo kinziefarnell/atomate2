@@ -374,6 +374,7 @@ def get_average_volume_from_database(
 
 def get_random_packed_structure(
     composition: Composition | str,
+    polyhedras: list[Molecule] | None = None,
     target_atoms: int = 100,
     vol_multiply: float = 1.0,
     tol: float = 2.0,
@@ -385,7 +386,8 @@ def get_random_packed_structure(
     packmol_output_dir: str | Path | None = None,
 ) -> Structure | Job:
     """
-    Generate a random packed structure with a target number of atoms.
+    Generate a random packed structure with a target number of atoms and/or polyhedras.
+    Polyhedra packing aims to follow Zachariasen's random network theory.
 
     Designed to make amorphous/glassy structures.
     Defaults to using cached MP data.
@@ -394,147 +396,7 @@ def get_random_packed_structure(
     ----------
     composition : Composition | str
         The composition of the target structure.
-    target_atoms : int
-        The target number of atoms in the structure.
-    vol_multiply : float
-        The factor to multiply the structure volume by.
-    tol : float
-        The tolerance to apply to the box size.
-    return_as_job : bool
-        Whether to return the structure as a jobflow job object.
-    vol_per_atom_source : float | str
-        If float - the volume per atom used to generate lattice size
-        If str - "mp" to use the Materials Project API to estimate volume per atom.
-        If str - "icsd" to use the ICSD database to estimate volume per atom.
-    pbc : bool = False,
-        Perserve periodic boundary condition effects when generating structure.
-        Recommend set tol = 0 if pbc = True.
-        Default to False; implemented in packmol > 20.15.0 only.
-    db_kwargs : dict | None = None
-        kwargs to pass to the volume-determining function.
-    packmol_seed : int
-        The seed to use for the packmol random number generator.
-    packmol_output_dir : str | Path | None
-        The directory to output the packmol files to. If None, a
-        temporary directory is used and will be removed after.
-
-    Returns
-    -------
-    Structure | Job
-        The random packed structure.
-    """
-    if return_as_job:
-        return Job(
-            get_random_packed_structure,
-            function_kwargs={
-                "composition": composition,
-                "target_atoms": target_atoms,
-                "vol_multiply": vol_multiply,
-                "tol": tol,
-                "return_as_job": False,
-                "vol_per_atom_source": vol_per_atom_source,
-                "pbc": False,
-                "packmol_seed": packmol_seed,
-            },
-        )
-    if isinstance(composition, str | dict):
-        composition = Composition(composition)
-
-    struct_db = (
-        vol_per_atom_source.lower() if isinstance(vol_per_atom_source, str) else None
-    )
-    db_kwargs = db_kwargs or ({"use_cached": True} if struct_db == "mp" else {})
-
-    if isinstance(vol_per_atom_source, float | int):
-        vol_per_atom = vol_per_atom_source
-
-    elif struct_db == "mp":
-        vol_per_atom = get_average_volume_from_mp(composition, **db_kwargs)
-
-    elif struct_db == "icsd":
-        vol_per_atom = get_average_volume_from_db_cached(
-            composition, db_name="icsd", **db_kwargs
-        )
-
-    else:
-        raise ValueError(f"Unknown volume per atom source: {vol_per_atom_source}.")
-
-    formula, _ = composition.get_integer_formula_and_factor()
-    integer_composition = Composition(formula)
-    full_cell_composition = integer_composition * np.ceil(
-        target_atoms / integer_composition.num_atoms
-    )
-
-    supercell_composition = {
-        str(el): int(full_cell_composition.element_composition.get(el))
-        for el in full_cell_composition
-    }
-
-    with TemporaryDirectory() as tmpdir:
-        molecules = []
-        for element, num_sites in supercell_composition.items():
-            xyz_file = f"{tmpdir}/{element}.xyz"
-            with open(xyz_file, "w+") as f:
-                f.write("1\ncomment\n" + element + " 0.0 0.0 0.0\n")
-            molecules.append({"name": element, "number": num_sites, "coords": xyz_file})
-
-        box_scale = (vol_per_atom * full_cell_composition.num_atoms * vol_multiply) ** (
-            1 / 3
-        )
-        box_lower_bound = tol / 2
-        box_upper_bound = box_scale - tol / 2
-
-        box_size = 3 * [box_lower_bound] + 3 * [box_upper_bound]
-
-        # modify this to include additional packmol params
-        # see PackmolBoxGen class in pymatgen.io.packmol for more details
-        packmol_additional_params = (
-            {"pbc": [" ".join(map(str, box_size)) + "\n"]} if pbc else {}
-        )
-
-        packmol_set = PackmolBoxGen(
-            seed=packmol_seed,
-            control_params=packmol_additional_params,
-        ).get_input_set(molecules=molecules, box=box_size)
-        packmol_output_dir = str(packmol_output_dir or tmpdir)
-        packmol_set.write_input(directory=packmol_output_dir)
-        packmol_set.run(path=packmol_output_dir)
-
-        mol = Molecule.from_file(f"{packmol_output_dir}/packmol_out.xyz")
-
-    return Structure(
-        [[box_scale if i == j else 0.0 for j in range(3)] for i in range(3)],
-        species=mol.species,
-        coords=mol.cart_coords,
-        coords_are_cartesian=True,
-    )
-
-
-def get_random_polyhedra_packed_structure(
-    composition: Composition | str,
-    polyhedras: list[Molecule],
-    target_atoms: int = 100,
-    vol_multiply: float = 1.0,
-    tol: float = 2.0,
-    return_as_job: bool = False,
-    vol_per_atom_source: float | str = "mp",
-    pbc: bool = False,
-    db_kwargs: dict | None = None,
-    packmol_seed: int = 1,
-    packmol_output_dir: str | Path | None = None,
-) -> Structure | Job:
-    """
-    Instead of randomly packing atoms, polyedra groups are first randomly packed,
-    and remainder atoms are packed to achieve the target composition.
-
-    Designed to make glassy structures via Zachariasen's random network theory.
-    Defaults to using cached MP data.
-
-    Parameters
-    ----------
-    composition : Composition | str
-        The composition of the target structure.
-    polyhedras: list[Molecule]
+    polyhedras: list[Molecule] | None = None
         List of polyhedras to include in the target structure.
     target_atoms : int
         The target number of atoms in the structure.
@@ -567,7 +429,7 @@ def get_random_polyhedra_packed_structure(
     """
     if return_as_job:
         return Job(
-            get_random_polyhedra_packed_structure,
+            get_random_packed_structure,
             function_kwargs={
                 "composition": composition,
                 "polyhedras": polyhedras,
@@ -604,52 +466,51 @@ def get_random_polyhedra_packed_structure(
 
     formula, _ = composition.get_integer_formula_and_factor()
     integer_composition = Composition(formula)
-
     full_cell_composition = integer_composition * np.ceil(
         target_atoms / integer_composition.num_atoms
     )
 
-    polyhedra_total_comp = sum(
-        [poly.composition for poly in polyhedras], start=Composition()
-    )
-
-    num_polyhedra_sites = int(
-        min(
-            [
-                full_cell_composition.as_dict()[el] / polyhedra_total_comp.as_dict()[el]
-                for el in full_cell_composition.as_dict()
-                if el in polyhedra_total_comp.as_dict()
-            ]
+    # if polyhedras - finds the number of polyhedras that can pack into desired stiochemtry
+    # remainder is filled with single atoms to match composition
+    if polyhedras:
+        polyhedra_total_comp = sum(
+            [poly.composition for poly in polyhedras], start=Composition()
         )
-    )
-
-    print("Polyhedra Comp", polyhedra_total_comp * num_polyhedra_sites)
-    print("Poly num sites", num_polyhedra_sites)
-    print("Full Cell Comp", full_cell_composition)
-
-    atomic_site_composition = full_cell_composition - (
-        polyhedra_total_comp * num_polyhedra_sites
-    )
+        num_polyhedra_sites = int(
+            min(
+                [
+                    full_cell_composition.as_dict()[el]
+                    / polyhedra_total_comp.as_dict()[el]
+                    for el in full_cell_composition.as_dict()
+                    if el in polyhedra_total_comp.as_dict()
+                ]
+            )
+        )
+        atomic_site_composition = full_cell_composition - (
+            polyhedra_total_comp * num_polyhedra_sites
+        )
+    else:
+        atomic_site_composition = full_cell_composition
 
     supercell_composition = {
         str(el): int(atomic_site_composition.element_composition.get(el))
         for el in full_cell_composition
         if int(atomic_site_composition.element_composition.get(el)) != 0
     }
-    print("POLY TEST")
+
     with TemporaryDirectory() as tmpdir:
         molecules = []
-
-        for poly in polyhedras:
-            xyz_file = f"{tmpdir}/{poly.composition.reduced_formula}.xyz"
-            poly.to(xyz_file)
-            molecules.append(
-                {
-                    "name": poly.composition.reduced_formula,
-                    "number": num_polyhedra_sites,
-                    "coords": xyz_file,
-                }
-            )
+        if polyhedras:
+            for poly in polyhedras:
+                xyz_file = f"{tmpdir}/{poly.composition.reduced_formula}.xyz"
+                poly.to(xyz_file)
+                molecules.append(
+                    {
+                        "name": poly.composition.reduced_formula,
+                        "number": num_polyhedra_sites,
+                        "coords": xyz_file,
+                    }
+                )
 
         for element, num_sites in supercell_composition.items():
             xyz_file = f"{tmpdir}/{element}.xyz"
@@ -674,7 +535,6 @@ def get_random_polyhedra_packed_structure(
         packmol_set = PackmolBoxGen(
             seed=packmol_seed,
             control_params=packmol_additional_params,
-            tolerance=2.5 if pbc else 2.0,
         ).get_input_set(molecules=molecules, box=box_size)
         packmol_output_dir = str(packmol_output_dir or tmpdir)
         packmol_set.write_input(directory=packmol_output_dir)
