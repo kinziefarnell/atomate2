@@ -30,19 +30,18 @@ _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 
 
 from jobflow import job
+
+
 @job()
 def extract_trajectory_frames(md_job_output, converge_check=False):
     if md_job_output.vasp_objects:
-        trajectory = md_job_output.vasp_objects['trajectory']
+        trajectory = md_job_output.vasp_objects["trajectory"]
     elif md_job_output.ase_objects:
-        trajectory = md_job_output.ase_objects['trajectory']
-    trajectory_data = {"energy": [],
-                       "temperature": [],
-                       "pressure": [],
-                       "stress": []}
+        trajectory = md_job_output.ase_objects["trajectory"]
+    trajectory_data = {"energy": [], "temperature": [], "pressure": [], "stress": []}
 
     length = len(trajectory)
-    num_last_frames = int(length * 0.10) + 1 # will average over last 10% of frames
+    num_last_frames = int(length * 0.10) + 1  # will average over last 10% of frames
 
     if converge_check:
         num_last_frames = length
@@ -60,8 +59,8 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
         stress_matrix = np.matrix(stress)
         stresses.append(stress)
         pressure = stress_matrix.trace()
-        pressures.append(pressure/3)
-    
+        pressures.append(pressure / 3)
+
     sum_stresses = np.zeros((3, 3))
     num_points = len(stresses)
     for stress_matrix in stresses:
@@ -71,7 +70,7 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
     average_stress = np.zeros((3, 3))
     for i in [0, 1, 2]:
         for j in [0, 1, 2]:
-            average_stress[i][j] = sum_stresses[i][j]/num_points
+            average_stress[i][j] = sum_stresses[i][j] / num_points
 
     trajectory_data["energy"] = np.mean(energies)
     trajectory_data["temperature"] = np.mean(temperatures)
@@ -82,15 +81,17 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
         num_atoms = len(trajectory[0].species)
         # check ionic convergence for energies
         # copying code from mpmorph
-        norm_energies = energies/num_atoms
+        norm_energies = energies / num_atoms
         mu, std = stats.norm.fit(norm_energies)
-        mu1, std1 = stats.norm.fit(norm_energies[0:int(len(norm_energies)/2)])
-        mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies)/2):])
-        ionic = np.abs((mu2 - mu1)/mu)
+        mu1, std1 = stats.norm.fit(norm_energies[0 : int(len(norm_energies) / 2)])
+        mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies) / 2) :])
+        ionic = np.abs((mu2 - mu1) / mu)
         trajectory_data["ionic"] = ionic
 
     return trajectory_data
-'''
+
+
+"""
 @job
 def convergence_check(md_job_output):
     if md_job_output.vasp_objects:
@@ -123,7 +124,8 @@ def convergence_check(md_job_output):
         
     return working_outputs
 
-'''
+"""
+
 
 def _get_average_volumes_file(
     chunk_size: int = 2048, timeout: float = 60
@@ -338,9 +340,11 @@ def get_average_volume_from_database(
     def get_entry_from_dict(chem_env: str) -> dict | None:
         data = avg_vols[avg_vols["chem_env"] == chem_env]
         data = data[
-            data["with_oxi"]
-            if (not ignore_oxi_states and len(data[data["with_oxi"]]) > 0)
-            else ~data["with_oxi"]
+            (
+                data["with_oxi"]
+                if (not ignore_oxi_states and len(data[data["with_oxi"]]) > 0)
+                else ~data["with_oxi"]
+            )
         ]
         if len(data) > 0:
             return {k: data[k].squeeze() for k in ("avg_vol", "count")}
@@ -375,6 +379,7 @@ def get_random_packed_structure(
     tol: float = 2.0,
     return_as_job: bool = False,
     vol_per_atom_source: float | str = "mp",
+    pbc: bool = False,
     db_kwargs: dict | None = None,
     packmol_seed: int = 1,
     packmol_output_dir: str | Path | None = None,
@@ -401,6 +406,10 @@ def get_random_packed_structure(
         If float - the volume per atom used to generate lattice size
         If str - "mp" to use the Materials Project API to estimate volume per atom.
         If str - "icsd" to use the ICSD database to estimate volume per atom.
+    pbc : bool = False,
+        Perserve periodic boundary condition effects when generating structure.
+        Recommend set tol = 0 if pbc = True.
+        Default to False; implemented in packmol > 20.15.0 only.
     db_kwargs : dict | None = None
         kwargs to pass to the volume-determining function.
     packmol_seed : int
@@ -424,6 +433,7 @@ def get_random_packed_structure(
                 "tol": tol,
                 "return_as_job": False,
                 "vol_per_atom_source": vol_per_atom_source,
+                "pbc": False,
                 "packmol_seed": packmol_seed,
             },
         )
@@ -476,9 +486,16 @@ def get_random_packed_structure(
 
         box_size = 3 * [box_lower_bound] + 3 * [box_upper_bound]
 
-        packmol_set = PackmolBoxGen(seed=packmol_seed).get_input_set(
-            molecules=molecules, box=box_size
+        # modify this to include additional packmol params
+        # see PackmolBoxGen class in pymatgen.io.packmol for more details
+        packmol_additional_params = (
+            {"pbc": [" ".join(map(str, box_size)) + "\n"]} if pbc else {}
         )
+
+        packmol_set = PackmolBoxGen(
+            seed=packmol_seed,
+            control_params=packmol_additional_params,
+        ).get_input_set(molecules=molecules, box=box_size)
         packmol_output_dir = str(packmol_output_dir or tmpdir)
         packmol_set.write_input(directory=packmol_output_dir)
         packmol_set.run(path=packmol_output_dir)
