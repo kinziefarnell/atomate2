@@ -61,6 +61,7 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
     quench_maker : SlowQuenchMaker or FastQuenchMaker or None
         SlowQuenchMaker - MDMaker that quenches structure from high to low temperature
         FastQuenchMaker - DoubleRelaxMaker + Static that "quenches" structure at 0K
+    # TODO: add convergence_maker here, should it be optional?
     production_md_maker : BaseMPMorphMDMaker
         MDMaker to generate the production run(s);
         inherits from MDMaker (VASP) or MultiMDMaker
