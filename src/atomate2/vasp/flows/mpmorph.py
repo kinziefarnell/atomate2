@@ -16,6 +16,7 @@ from jobflow import Response
 
 from atomate2.common.flows.mpmorph import (
     EquilibriumVolumeMaker,
+    ConvergenceMDMaker,
     FastQuenchMaker,
     MPMorphMDMaker,
     SlowQuenchMaker,
@@ -70,6 +71,9 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
     name: str = "MP Morph VASP MD Maker"
     equilibrium_volume_maker: EquilibriumVolumeMaker = field(
         default_factory=lambda: EquilibriumVolumeMaker(md_maker=BaseMPMorphMDMaker())
+    )
+    convergence_maker: ConvergenceMDMaker = field(
+        default_factory=lambda: ConvergenceMDMaker(md_maker=BaseMPMorphMDMaker())
     )
     production_md_maker: MDMaker | MultiMDMaker = field(
         default_factory=BaseMPMorphMDMaker

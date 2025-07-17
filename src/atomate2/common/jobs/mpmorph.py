@@ -22,6 +22,7 @@ import pandas as pd
 from jobflow import Job
 from pymatgen.core import Composition, Molecule, Structure
 from pymatgen.io.packmol import PackmolBoxGen
+from scipy import stats
 
 _DEFAULT_AVG_VOL_FILE = Path("~/.cache/atomate2").expanduser() / "db_avg_vols.json.gz"
 if not _DEFAULT_AVG_VOL_FILE.parents[0].exists():
@@ -32,10 +33,21 @@ _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 from jobflow import job
 @job()
 def extract_trajectory_frames(md_job_output, converge_check=False):
-    if md_job_output.vasp_objects:
+    #if md_job_output.vasp_objects:
+    #    trajectory = md_job_output.vasp_objects['trajectory']
+    #print(md_job_output):
+    #print(md_job_output.included_objects)
+    #if md_job_output.AseStructureTaskDoc:
+    #    trajectory = md_job_output.ase_objects['trajectory']
+    # TODO: adapt this so it works with both ASE and VASP without breaking
+    #trajectory = md_job_output.objects['trajectory']
+    energy_name = "e_wo_entrp"
+    try: # see if this is VASP trajectory
         trajectory = md_job_output.vasp_objects['trajectory']
-    elif md_job_output.ase_objects:
-        trajectory = md_job_output.ase_objects['trajectory']
+        energy_name = "e_wo_entrp"
+    except: # otherwise, assume it's ASE, idk if I should add another try except in case its not ASE
+        trajectory = md_job_output.objects['trajectory']
+        energy_name = "energy"
     trajectory_data = {"energy": [],
                        "temperature": [],
                        "pressure": [],
@@ -53,7 +65,9 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
     pressures = []
     stresses = []
     for frame in frames[-num_last_frames:]:
-        energies.append(frame["e_wo_entrp"])
+        #energies.append(frame["e_wo_entrp"]) # use for VASP
+        energies.append(frame[energy_name]) # use for ASE
+        # TODO: make sure correct energy is referenced based on if VASP or ASE has been run
         temperatures.append(frame["temperature"])
         # calculate pressure
         stress = frame["stress"]
@@ -82,7 +96,9 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
         num_atoms = len(trajectory[0].species)
         # check ionic convergence for energies
         # copying code from mpmorph
-        norm_energies = energies/num_atoms
+        norm_energies = []
+        for energy in energies:
+            norm_energies.append(energy/num_atoms)
         mu, std = stats.norm.fit(norm_energies)
         mu1, std1 = stats.norm.fit(norm_energies[0:int(len(norm_energies)/2)])
         mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies)/2):])
