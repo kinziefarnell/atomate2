@@ -16,6 +16,7 @@ from jobflow import Response
 
 from atomate2.common.flows.mpmorph import (
     EquilibriumVolumeMaker,
+    ConvergenceMDMaker,
     FastQuenchMaker,
     MPMorphMDMaker,
     SlowQuenchMaker,
@@ -61,6 +62,7 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
     quench_maker : SlowQuenchMaker or FastQuenchMaker or None
         SlowQuenchMaker - MDMaker that quenches structure from high to low temperature
         FastQuenchMaker - DoubleRelaxMaker + Static that "quenches" structure at 0K
+    # TODO: add convergence_maker here, should it be optional?
     production_md_maker : BaseMPMorphMDMaker
         MDMaker to generate the production run(s);
         inherits from MDMaker (VASP) or MultiMDMaker
@@ -69,6 +71,9 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
     name: str = "MP Morph VASP MD Maker"
     equilibrium_volume_maker: EquilibriumVolumeMaker = field(
         default_factory=lambda: EquilibriumVolumeMaker(md_maker=BaseMPMorphMDMaker())
+    )
+    convergence_maker: ConvergenceMDMaker = field(
+        default_factory=lambda: ConvergenceMDMaker(md_maker=BaseMPMorphMDMaker())
     )
     production_md_maker: MDMaker | MultiMDMaker = field(
         default_factory=BaseMPMorphMDMaker

@@ -22,7 +22,7 @@ from jobflow import Flow, Maker, Response, job
 
 from atomate2.common.jobs.eos import MPMorphPVPostProcess, _apply_strain_to_structure
 
-from atomate2.common.jobs.mpmorph import extract_trajectory_frames
+from atomate2.common.jobs.mpmorph import extract_trajectory_frames, optimize_vol
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -168,7 +168,7 @@ class EquilibriumVolumeMaker(Maker):
             postprocess_job = extract_trajectory_frames(md_job.output)
             postprocess_job.name = f" process_traj_frames {relaxed_vol + 1}"
 
-            working_outputs["relax"]["energies"].append(postprocess_job.output.energy)
+            working_outputs["relax"]["energy"].append(postprocess_job.output.energy)
             working_outputs["relax"]["volume"].append(md_job.output.structure.volume)
             working_outputs["relax"]["stress"].append(postprocess_job.output.stress)
             working_outputs["relax"]["pressure"].append(postprocess_job.output.pressure)
@@ -188,9 +188,9 @@ class EquilibriumVolumeMaker(Maker):
 
 # insert convergence maker here
 @dataclass
-class ConvergenceMDMaker():# put in appropriate args):
-    # Add in appropriate notes on what this maker does
-    # should take a Maker object that you will use to define the md runs
+class ConvergenceMDMaker(Maker):
+    # Maker is used for mdruns
+
     """
     Converge structure using NVT + convergence runs
 
@@ -204,16 +204,20 @@ class ConvergenceMDMaker():# put in appropriate args):
     convergence parameters: dict
         parameters to identify convergence
     TODO: whatever else to add here, i.e. max energy runs
+    optimize vol could be a parameter that defaults to your fxn., option
     """
 
-    md_maker: Maker
+    md_maker: Maker | None = None
     name: str = "Convergence Maker"
-    rescale_params: float = 0.0000005 # "beta" parameter in old mpmorph, 
-    convergence params: dict = {"density": 0.0005, "ionic": 0.0005} # TODO - check if correct val for density
-    max_energy_runs: float = 3 
+    #eos_working_outputs: dict = field(default_factory = dict[str, any])# | None = None
+    rescale_params: float = 5e-7 # "beta" parameter in old mpmorph, TODO: check if ok
+    #convergence_params: dict = field(default_factory = {"density": 5, "ionic": 0.0005}) 
+    density: float = 5
+    ionic: float = 0.0005
+    max_energy_runs: float = 3
+    max_density_runs: float = 20
 
     # define post_init method
-    # I'm not really sure why the post_init is there, but the other classes seem to have it
     def __post_init__(self) -> None:
         """Ensure required class attributes are set. """
         if self.md_maker is None:
@@ -221,88 +225,116 @@ class ConvergenceMDMaker():# put in appropriate args):
 
     # define make function
     @job
-    make(
+    def make(
             self,
-            structure,
-            prev_dir,
-            working_outputs
-            )
-    rescale_struct = False
-    if working_outputs is None:
-        # define working outputs
-        working_outputs = {key: [] for key in ("pressure", "ionic")}
-    else:
-        # do check for pressure
-        if working_outputs["pressure"] < pressure: # TODO add args somewhere that define pressure and ionic required for convergence
-            converged_pressure = True
+            structure: Structure,
+            prev_dir: str | Path | None = None,
+            eos_working_outputs: dict[str, Any] | None = None,
+            working_outputs: dict[str, Any] | None = None,
+            
+    ) -> Flow:
+        name = "convergence run"
+        if working_outputs is None:
+            # define working outputs
+            working_outputs = {key: [] for key in ("pressures", "volumes", "density", "ionic")}
+            working_outputs["density_spawn_count"] = 0
+            working_outputs["energy_spawn_count"] = 0
+        
+            # TODO: need to double think about this and execution for first time this is entered
         else:
             converged_pressure = False
-            rescale_struct = True
-
-        # check for energy differences # TODO: check if you should be rescaling structure when energy is unconverged, no?
-        if working_outputs["ionic"] < ionic:
-            converged_ionic = True
-        else:
             converged_ionic = False
-        
-        # TODO: third check in old mpmorph for "kinetic", idk
 
-        if converged_pressure and converged_energy:
-            # no more convergence runs
+            # do check for pressure
+            if working_outputs["density"][-1] < self.density: 
+                converged_pressure = True
+            else:
+                working_outputs["density_spawn_count"] = working_outputs["density_spawn_count"] + 1
 
+            # check for energy differences
+            if working_outputs["ionic"][-1] < self.ionic:
+                converged_ionic = True
+            else:
+                working_outputs["energy_spawn_count"] = working_outputs["energy_spawn_count"] + 1
+            
+            # TODO: third check in old mpmorph for "kinetic"?
 
-    #set up md run
-    if rescale_struct:
-        # need to rescale structure
-        # set up some kind of deformation matrix with rescale params
-        # apply that
-        structure = deformed_structure
-    # else, will just rerun same structure for longer
-    self.md_maker.make(structure = structure, prev_dir = None)
-    md_job.name = f"convergence run" # TODO: add something to indicate if pressure/ionic run
-
-    post_process = extract_trajectory_frames(md_job.output, check_convergence = True)
-    post_process.name = f"postprocess convergence run"
-    # make extract trajectory frames to take md maker output
-
-    working_outputs["pressure"] = post_process.output.pressure
-    working_outputs["ionic"] = post_process.output.ionic
-
-    # set up recursive call for function
-    recursive = self.make(
-            structure,
-            prev_dir = None,
-            working_outputs = working_outputs,
-            )
-
-    new_eos_flow = Flow([md_job, post_process, recursive], output = recursive.output)
-
-    # return response which lists flow for md-jobs, convergence-check, and recursive make call
-    return Response(replace = new_eos_flow, output = recursive.output)
+            # check for too many runs
+            if working_outputs["density_spawn_count"] > self.max_density_runs:
+                raise ValueError("Pressure was unable to converge after max runs {}.".format(self.max_density_runs))
 
 
-    # you can define the make function with a job decorator and it will implicitly become a job object
-    # inputs to make: structure, working outputs
+            flow_output = {"structure": None, "working_outputs": working_outputs.copy()}    
+            if working_outputs["energy_spawn_count"] > self.max_energy_runs: # TODO: fix this so that pressure can keep running even when max_energy runs is reached
+                print("too many energy runs, just go to production")
+                flow_output["structure"] = structure.copy()
+                return flow_output
 
-        # make job to run MD for 1000 steps
+               
+            if (converged_pressure and converged_ionic):
+                flow_output["structure"] = structure.copy()
+                return flow_output 
+            elif working_outputs["density_spawn_count"] > self.max_density_runs:
+                return Response(output=flow_output, stop_children=True)
 
-        # make job that does checks on the MD - could add this in common/jobs/mpmorph.py, yes?
+            if not converged_pressure:
+                new_volume = None
+                old_volume = working_outputs['volumes'][0]
+                if len(working_outputs['pressures']) == 1:
+                    if eos_working_outputs is not None:
+                        # assume middle volume from eos is closest match
+                        volumes = eos_working_outputs['relax']['volume']
+                        v0 = volumes[1] # TODO: 1 is the middle volume, right?
+                        stress_0 = eos_working_outputs['relax']['stress'][1]
+                        stress_matrix = np.matrix(stress_0)
+                        p0 = (1/3) * stress_matrix.trace()
+                        p1 = working_outputs['pressures'][0]
+                        v1 = working_outputs['volumes'][0]
+                        new_volume = optimize_vol(p0, v0, p1, v1)
+                    else:
+                        new_volume = old_volume * 1.001 # TODO: choose more appropriate rescaling parameter
+                else: # this should mean there is more than one volume
+                    #pass this to an optimization function implemented in common/jobs/mpmorph.py
+                    p0 = working_outputs['pressures'][-2]
+                    v0 = working_outputs['volumes'][-2]
+                    p1 = working_outputs['pressures'][-1]
+                    v1 = working_outputs['volumes'][-1]
+                    new_volume = optimize_vol(p0, v0, p1, v1) 
 
-        # well, let's at least write the pseudocode for that job and can put it in the appropriate place as we figure out
+                
 
-        # take MD pressure - is it less than 5<
-        # if less than 5, then that's good
-        # if not less than 5, we need more convergence runs
+                deformation_matrix = [np.eye(3) * float(new_volume/old_volume)] 
+                #print(deformation_matrix)
+                deformed_structure = _apply_strain_to_structure(
+                    structure, deformation_matrix
+                )
+                #print(deformed_structure)
+                working_outputs["energy_spawn_count"] = 0 # reset energy spawn count b/c struct has rescaled volume
+                structure = deformed_structure[0].final_structure
 
+                name = "convergence run volume rescale"
 
-        # does this need to be a job or is it possible to do the processing here?
+        conv_md_job = self.md_maker.make(structure, prev_dir = None)
+        conv_md_job.name = name # TODO: add something to indicate if pressure/ionic run
 
-        # because I notice that EquilibriumVolumeMaker has lots of processing and it's like a job in the flow?
+        post_process = extract_trajectory_frames(conv_md_job.output, converge_check = True)
+        post_process.name = f"postprocess convergence run"
 
-        # some aspect of this should be recursive I think
+        working_outputs["density"].append(post_process.output.pressure) # TODO: append these to list so user can see all densities and ionics
+        working_outputs["ionic"].append(post_process.output.ionic)
+        working_outputs["pressures"].append(post_process.output.pressure)
+        working_outputs["volumes"].append(conv_md_job.output.volume)
 
+        recursive = self.make(
+                structure,
+                prev_dir = None,
+                eos_working_outputs = eos_working_outputs,
+                working_outputs = working_outputs,
+                )
 
+        new_eos_flow = Flow([conv_md_job, post_process, recursive], output = recursive.output)
 
+        return Response(replace = new_eos_flow, output = recursive.output)
 
 @dataclass
 class MPMorphMDMaker(Maker, metaclass=ABCMeta):
@@ -325,6 +357,7 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
         Name of the flows produced by this maker.
     equilibrium_volume_maker : EquilibriumVolumeMaker
         MDMaker to generate the equilibrium volumer searcher
+    # TODO: add convergence maker here
     production_md_maker : Maker
         MDMaker to generate the production run(s)
     quench_maker :  SlowQuenchMaker or FastQuenchMaker or None
@@ -335,8 +368,10 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
     """
 
     production_md_maker: Maker
+    convergence_maker: Maker
     name: str = "Base MPMorph MD"
     equilibrium_volume_maker: Maker | None = None
+    # TODO: add convergence_maker param
     quench_maker: FastQuenchMaker | SlowQuenchMaker | None = None
 
     def __post_init__(self) -> None:
@@ -373,12 +408,21 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
         flow_jobs = []
 
         if self.equilibrium_volume_maker is not None:
-            convergence_flow = self.equilibrium_volume_maker.make(
+            eos_convergence_flow = self.equilibrium_volume_maker.make(
                 structure, prev_dir=prev_dir
             )
+            flow_jobs.append(eos_convergence_flow)
+
+            structure = eos_convergence_flow.output["structure"]
+
+        if self.convergence_maker is not None:
+            convergence_flow = self.convergence_maker.make(
+                structure, prev_dir = prev_dir,
+                eos_working_outputs = eos_convergence_flow.output["working_outputs"], 
+            )
+
             flow_jobs.append(convergence_flow)
 
-            # convergence_flow only outputs a structure
             structure = convergence_flow.output["structure"]
 
         self.production_md_maker.name = self.name + " production run"

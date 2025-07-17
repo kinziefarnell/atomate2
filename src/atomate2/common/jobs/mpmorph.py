@@ -22,6 +22,7 @@ import pandas as pd
 from jobflow import Job
 from pymatgen.core import Composition, Molecule, Structure
 from pymatgen.io.packmol import PackmolBoxGen
+from scipy import stats
 
 _DEFAULT_AVG_VOL_FILE = Path("~/.cache/atomate2").expanduser() / "db_avg_vols.json.gz"
 if not _DEFAULT_AVG_VOL_FILE.parents[0].exists():
@@ -52,7 +53,9 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
     pressures = []
     stresses = []
     for frame in frames[-num_last_frames:]:
-        energies.append(frame["e_wo_entrp"])
+        # energies.append(frame["e_wo_entrp"]) # use for VASP
+        energies.append(frame[energy_name])  # use for ASE
+        # TODO: make sure correct energy is referenced based on if VASP or ASE has been run
         temperatures.append(frame["temperature"])
         # calculate pressure
         stress = frame["stress"]
