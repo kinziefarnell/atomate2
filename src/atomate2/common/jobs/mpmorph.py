@@ -94,6 +94,13 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
     return trajectory_data
 
 
+def optimize_vol(p0, v0, p1, v1):
+
+    new_volume = ((v1 * p0) - (p1 * v0)) / (p0 - p1)
+
+    return new_volume
+
+
 """
 @job
 def convergence_check(md_job_output):
