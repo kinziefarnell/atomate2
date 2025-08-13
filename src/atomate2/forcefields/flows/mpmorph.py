@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from atomate2.common.flows.mpmorph import (
     EquilibriumVolumeMaker,
+    ConvergenceMDMaker,
     FastQuenchMaker,
     MPMorphMDMaker,
     SlowQuenchMaker,
@@ -55,6 +56,9 @@ class MPMorphMLFFMDMaker(MPMorphMDMaker):
     equilibrium_volume_maker : EquilibriumVolumeMaker
         MDMaker to generate the equilibrium volumer searcher;
         uses EquilibriumVolumeMaker with a ForceFieldMDMaker (MLFF)
+    convergence_md_maker: ConvergenceMDMaker
+        MDMaker to generate convergence runs for pressure and energy
+        uses ConvergenceMaker with a ForceFieldMDMaker (MLFF)
     production_md_maker : ForceFieldMDMaker
         MDMaker to generate the production run(s);
         inherits from ForceFieldMDMaker (MLFF)
@@ -67,6 +71,8 @@ class MPMorphMLFFMDMaker(MPMorphMDMaker):
 
     name: str = "MP Morph MLFF MD Maker"
     equilibrium_volume_maker: EquilibriumVolumeMaker | None = None
+    # TODO: test that this works
+    convergence_maker: ConvergenceMDMaker | None = None
     production_md_maker: ForceFieldMDMaker = field(default_factory=ForceFieldMDMaker)
     quench_maker: FastQuenchMaker | SlowQuenchMaker | None = None
 
@@ -118,6 +124,11 @@ class MPMorphMLFFMDMaker(MPMorphMDMaker):
             name="MP Morph MLFF Equilibrium Volume Maker",
             md_maker=conv_md_maker,
         )
+        # TODO: test that this works
+        convergence_maker = ConvergenceMDMaker(
+            name="MP Morph MLFF Convergence MD Maker",
+            md_maker=conv_md_maker,
+        )
 
         production_md_maker = md_maker.update_kwargs(
             update={
@@ -132,6 +143,7 @@ class MPMorphMLFFMDMaker(MPMorphMDMaker):
         return cls(
             name="MP Morph MLFF MD Maker",
             equilibrium_volume_maker=equilibrium_volume_maker,
+            convergence_maker=convergence_maker,
             production_md_maker=production_md_maker,
             quench_maker=quench_maker,
         )

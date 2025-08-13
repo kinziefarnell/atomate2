@@ -186,10 +186,8 @@ class EquilibriumVolumeMaker(Maker):
         return Response(replace=new_eos_flow, output=recursive.output)
 
 
-# insert convergence maker here
 @dataclass
 class ConvergenceMDMaker(Maker):
-    # Maker is used for mdruns
 
     """
     Converge structure using NVT + convergence runs
@@ -199,19 +197,18 @@ class ConvergenceMDMaker(Maker):
         Name of the flow
     md_maker: Maker
         Maker to perform NVT MD runs
-    rescale parameters: float? # TODO: figure out what should be included here
-        Parameter to change volume by between pressure runs
-    convergence parameters: dict
-        parameters to identify convergence
-    TODO: whatever else to add here, i.e. max energy runs
-    optimize vol could be a parameter that defaults to your fxn., option
+    density: float
+        convergence parameter for pressure
+    ionic: float
+        convergence parameter for energy
+    max_energy_runs: float
+        maximum number of convergence runs for energy
+    max_density_runs: float
+        maximum number of convergence runs for pressure
     """
 
     md_maker: Maker | None = None
     name: str = "Convergence Maker"
-    #eos_working_outputs: dict = field(default_factory = dict[str, any])# | None = None
-    rescale_params: float = 5e-7 # "beta" parameter in old mpmorph, TODO: check if ok
-    #convergence_params: dict = field(default_factory = {"density": 5, "ionic": 0.0005}) 
     density: float = 5
     ionic: float = 0.0005
     max_energy_runs: float = 3
@@ -240,7 +237,6 @@ class ConvergenceMDMaker(Maker):
             working_outputs["density_spawn_count"] = 0
             working_outputs["energy_spawn_count"] = 0
         
-            # TODO: need to double think about this and execution for first time this is entered
         else:
             converged_pressure = False
             converged_ionic = False
@@ -259,24 +255,20 @@ class ConvergenceMDMaker(Maker):
             
             # TODO: third check in old mpmorph for "kinetic"?
 
-            # check for too many runs
-            if working_outputs["density_spawn_count"] > self.max_density_runs:
-                raise ValueError("Pressure was unable to converge after max runs {}.".format(self.max_density_runs))
-
-
+            # outline conditions to stop flow
             flow_output = {"structure": None, "working_outputs": working_outputs.copy()}    
-            if working_outputs["energy_spawn_count"] > self.max_energy_runs: # TODO: fix this so that pressure can keep running even when max_energy runs is reached
-                print("too many energy runs, just go to production")
-                flow_output["structure"] = structure.copy()
-                return flow_output
-
-               
             if (converged_pressure and converged_ionic):
                 flow_output["structure"] = structure.copy()
                 return flow_output 
             elif working_outputs["density_spawn_count"] > self.max_density_runs:
+                print("Pressure was unable to converge after max runs {}.".format(self.max_density_runs))
                 return Response(output=flow_output, stop_children=True)
+            elif working_outputs["energy_spawn_count"] > self.max_energy_runs and converged_pressure: # TODO: fix this so that pressure can keep running even when max_energy runs is reached
+                print("too many energy runs, just go to production")
+                flow_output["structure"] = structure.copy()
+                return flow_output
 
+            # rescale volume if pressure is unconverged
             if not converged_pressure:
                 new_volume = None
                 old_volume = working_outputs['volumes'][0]
@@ -284,7 +276,7 @@ class ConvergenceMDMaker(Maker):
                     if eos_working_outputs is not None:
                         # assume middle volume from eos is closest match
                         volumes = eos_working_outputs['relax']['volume']
-                        v0 = volumes[1] # TODO: 1 is the middle volume, right?
+                        v0 = volumes[1] 
                         stress_0 = eos_working_outputs['relax']['stress'][1]
                         stress_matrix = np.matrix(stress_0)
                         p0 = (1/3) * stress_matrix.trace()
@@ -293,34 +285,29 @@ class ConvergenceMDMaker(Maker):
                         new_volume = optimize_vol(p0, v0, p1, v1)
                     else:
                         new_volume = old_volume * 1.001 # TODO: choose more appropriate rescaling parameter
-                else: # this should mean there is more than one volume
-                    #pass this to an optimization function implemented in common/jobs/mpmorph.py
+                else: # this should mean we have two (volume, pressure) pairs to use for rescaling
                     p0 = working_outputs['pressures'][-2]
                     v0 = working_outputs['volumes'][-2]
                     p1 = working_outputs['pressures'][-1]
                     v1 = working_outputs['volumes'][-1]
                     new_volume = optimize_vol(p0, v0, p1, v1) 
 
-                
-
                 deformation_matrix = [np.eye(3) * float(new_volume/old_volume)] 
-                #print(deformation_matrix)
                 deformed_structure = _apply_strain_to_structure(
                     structure, deformation_matrix
                 )
-                #print(deformed_structure)
                 working_outputs["energy_spawn_count"] = 0 # reset energy spawn count b/c struct has rescaled volume
                 structure = deformed_structure[0].final_structure
 
                 name = "convergence run volume rescale"
 
         conv_md_job = self.md_maker.make(structure, prev_dir = None)
-        conv_md_job.name = name # TODO: add something to indicate if pressure/ionic run
+        conv_md_job.name = name
 
         post_process = extract_trajectory_frames(conv_md_job.output, converge_check = True)
         post_process.name = f"postprocess convergence run"
 
-        working_outputs["density"].append(post_process.output.pressure) # TODO: append these to list so user can see all densities and ionics
+        working_outputs["density"].append(post_process.output.pressure) 
         working_outputs["ionic"].append(post_process.output.ionic)
         working_outputs["pressures"].append(post_process.output.pressure)
         working_outputs["volumes"].append(conv_md_job.output.volume)

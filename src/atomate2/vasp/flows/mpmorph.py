@@ -62,7 +62,9 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
     quench_maker : SlowQuenchMaker or FastQuenchMaker or None
         SlowQuenchMaker - MDMaker that quenches structure from high to low temperature
         FastQuenchMaker - DoubleRelaxMaker + Static that "quenches" structure at 0K
-    # TODO: add convergence_maker here, should it be optional?
+    convergence_maker : ConvergenceMDmaker
+        MDMaker to generate convergence runs for pressure and energy
+        inherits from ConvergenceMaker and MDMaker (VASP)
     production_md_maker : BaseMPMorphMDMaker
         MDMaker to generate the production run(s);
         inherits from MDMaker (VASP) or MultiMDMaker
@@ -133,9 +135,12 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
             name="MP Morph VASP Equilibrium Volume Maker", md_maker=conv_md_maker
         )
 
-# TODO: add convergence_maker call here; can use conv_md_maker as well
-# not sure how this gets appropriate chained with production run
-
+        #TODO: test that from_temperature_and_steps method works with convergence maker
+        convergence_maker = ConvergenceMDMaker(
+            name = "MP Morph VASP Convergence MD Maker",
+            md_maker=conv_md_maker,
+        )
+        
         if n_steps_per_production_run is None:
             n_steps_per_production_run = n_steps_production
             n_production_runs = 1
@@ -168,6 +173,7 @@ class MPMorphVaspMDMaker(MPMorphMDMaker):
         return cls(
             name="MP Morph VASP MD Maker",
             equilibrium_volume_maker=equilibrium_volume_maker,
+            convergence_maker=convergence_maker,
             production_md_maker=production_md_maker,
             quench_maker=quench_maker,
         )

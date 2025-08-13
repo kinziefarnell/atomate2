@@ -35,10 +35,13 @@ from jobflow import job
 
 @job()
 def extract_trajectory_frames(md_job_output, converge_check=False):
-    if md_job_output.vasp_objects:
-        trajectory = md_job_output.vasp_objects["trajectory"]
-    elif md_job_output.ase_objects:
-        trajectory = md_job_output.ase_objects["trajectory"]
+    energy_name = "e_wo_entrp"
+    try: # assuming trajectory is from VASP
+        trajectory = md_job_output.vasp_objects['trajectory']
+        energy_name = "e_wo_entrp"
+    except:
+        trajectory = md_job_output.objects["trajectory"]
+        energy_name = "energy"
     trajectory_data = {"energy": [], "temperature": [], "pressure": [], "stress": []}
 
     length = len(trajectory)
