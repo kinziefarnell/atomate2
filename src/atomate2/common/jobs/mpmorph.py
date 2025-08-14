@@ -87,7 +87,9 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
         num_atoms = len(trajectory[0].species)
         # check ionic convergence for energies
         # copying code from mpmorph
-        norm_energies = energies / num_atoms
+        norm_energies = []
+        for energy in energies:
+            norm_energies.append(energy/num_atoms)
         mu, std = stats.norm.fit(norm_energies)
         mu1, std1 = stats.norm.fit(norm_energies[0 : int(len(norm_energies) / 2)])
         mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies) / 2) :])
