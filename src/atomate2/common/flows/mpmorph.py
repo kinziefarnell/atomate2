@@ -299,13 +299,17 @@ class ConvergenceMDMaker(Maker):
                 working_outputs["energy_spawn_count"] = 0 # reset energy spawn count b/c struct has rescaled volume
                 structure = deformed_structure[0].final_structure
 
-                name = "convergence run volume rescale"
+                name = "convergence run volume rescale {}".format(working_outputs["density_spawn_count"])
+            else: # it's an energy run, just need to make sure name is right
+                name = "convergence run {}".format(working_outputs["energy_spawn_count"])
 
         conv_md_job = self.md_maker.make(structure, prev_dir = None)
         conv_md_job.name = name
 
         post_process = extract_trajectory_frames(conv_md_job.output, converge_check = True)
         post_process.name = f"postprocess convergence run"
+
+        structure = conv_md_job.output.output.structure # this will be last frame of conv job
 
         working_outputs["density"].append(post_process.output.pressure) 
         working_outputs["ionic"].append(post_process.output.ionic)
