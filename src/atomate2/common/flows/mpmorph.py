@@ -242,7 +242,7 @@ class ConvergenceMDMaker(Maker):
             converged_ionic = False
 
             # do check for pressure
-            if working_outputs["density"][-1] < self.density: 
+            if abs(working_outputs["density"][-1]) < self.density: 
                 converged_pressure = True
             else:
                 working_outputs["density_spawn_count"] = working_outputs["density_spawn_count"] + 1
@@ -271,7 +271,7 @@ class ConvergenceMDMaker(Maker):
             # rescale volume if pressure is unconverged
             if not converged_pressure:
                 new_volume = None
-                old_volume = working_outputs['volumes'][0]
+                old_volume = working_outputs['volumes'][-1]
                 if len(working_outputs['pressures']) == 1:
                     if eos_working_outputs is not None:
                         # assume middle volume from eos is closest match
