@@ -399,14 +399,14 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
         """
         flow_jobs = []
 
-	eos_working_outputs = None
+        eos_working_outputs = None
         if self.equilibrium_volume_maker is not None:
             eos_convergence_flow = self.equilibrium_volume_maker.make(
                 structure, prev_dir=prev_dir
             )
             flow_jobs.append(eos_convergence_flow)
 
-	    eos_working_outputs = eos_convergence_flow.output["working_outputs"]
+            eos_working_outputs = eos_convergence_flow.output["working_outputs"]
             structure = eos_convergence_flow.output["structure"]
 
         if self.convergence_maker is not None:
