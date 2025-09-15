@@ -348,7 +348,8 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
         Name of the flows produced by this maker.
     equilibrium_volume_maker : EquilibriumVolumeMaker
         MDMaker to generate the equilibrium volumer searcher
-    # TODO: add convergence maker here
+    convergence_maker: ConvergenceMDMaker
+	MDMaker to ensure pressure + energy of structure converge
     production_md_maker : Maker
         MDMaker to generate the production run(s)
     quench_maker :  SlowQuenchMaker or FastQuenchMaker or None
@@ -398,18 +399,20 @@ class MPMorphMDMaker(Maker, metaclass=ABCMeta):
         """
         flow_jobs = []
 
+	eos_working_outputs = None
         if self.equilibrium_volume_maker is not None:
             eos_convergence_flow = self.equilibrium_volume_maker.make(
                 structure, prev_dir=prev_dir
             )
             flow_jobs.append(eos_convergence_flow)
 
+	    eos_working_outputs = eos_convergence_flow.output["working_outputs"]
             structure = eos_convergence_flow.output["structure"]
 
         if self.convergence_maker is not None:
             convergence_flow = self.convergence_maker.make(
                 structure, prev_dir = prev_dir,
-                eos_working_outputs = eos_convergence_flow.output["working_outputs"], 
+                eos_working_outputs = eos_working_outputs, 
             )
 
             flow_jobs.append(convergence_flow)
