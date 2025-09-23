@@ -210,7 +210,7 @@ class ConvergenceMDMaker(Maker):
     md_maker: Maker | None = None
     name: str = "Convergence Maker"
     density: float = 5
-    ionic: float = 0.0005
+    ionic: float = 0.001
     max_energy_runs: float = 3
     max_density_runs: float = 20
 
@@ -263,7 +263,7 @@ class ConvergenceMDMaker(Maker):
             elif working_outputs["density_spawn_count"] > self.max_density_runs:
                 print("Pressure was unable to converge after max runs {}.".format(self.max_density_runs))
                 return Response(output=flow_output, stop_children=True)
-            elif working_outputs["energy_spawn_count"] > self.max_energy_runs and converged_pressure: # TODO: fix this so that pressure can keep running even when max_energy runs is reached
+            elif working_outputs["energy_spawn_count"] > self.max_energy_runs and converged_pressure:
                 print("too many energy runs, just go to production")
                 flow_output["structure"] = structure.copy()
                 return flow_output
@@ -292,7 +292,7 @@ class ConvergenceMDMaker(Maker):
                     v1 = working_outputs['volumes'][-1]
                     new_volume = optimize_vol(p0, v0, p1, v1) 
 
-                deformation_matrix = [np.eye(3) * float(new_volume/old_volume)] 
+                deformation_matrix = [np.eye(3) * float(float(new_volume)/float(old_volume))] 
                 deformed_structure = _apply_strain_to_structure(
                     structure, deformation_matrix
                 )
