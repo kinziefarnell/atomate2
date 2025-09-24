@@ -292,7 +292,8 @@ class ConvergenceMDMaker(Maker):
                     v1 = working_outputs['volumes'][-1]
                     new_volume = optimize_vol(p0, v0, p1, v1) 
 
-                deformation_matrix = [np.eye(3) * float(float(new_volume)/float(old_volume))] 
+                scaling = ((float(new_volume))/(float(old_volume))) ** (1/3)
+                deformation_matrix = [np.eye(3) * scaling] 
                 deformed_structure = _apply_strain_to_structure(
                     structure, deformation_matrix
                 )
