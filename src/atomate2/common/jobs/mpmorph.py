@@ -120,9 +120,9 @@ def optimize_vol(volumes, pressures, rescale_scheme):
     
     if rescale_scheme == "poly":
          if len(volumes) == 2:
-            eqs = np.poly1d(np.polyfit(volumes, pressures, 1))
-        else:
-            eqs = np.poly1d(np.polyfit(volumes, pressures, 2))
+             eqs = np.poly1d(np.polyfit(volumes, pressures, 1))
+         else:
+             eqs = np.poly1d(np.polyfit(volumes, pressures, 2))
 
 
 """
