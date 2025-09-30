@@ -99,11 +99,30 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
     return trajectory_data
 
 
-def optimize_vol(p0, v0, p1, v1):
+#def optimize_vol(p0, v0, p1, v1, rescale_scheme):
+def optimize_vol(volumes, pressures, rescale_scheme):
+    # code taken from old mpmorph
 
-    new_volume = ((v1 * p0) - (p1 * v0)) / (p0 - p1)
+    p1 = pressures[-1]
+    v1 = volumes[-1]
+    if rescale_scheme == "thermo" or len(volumes) == 1:
+        beta = 5e-7
+        target_pressure = 0
+        vol_change = np.exp(-beta * (target_pressure - p1))
+        return v1 * vol_change
+    
+    p0 = pressures[-2]
+    v0 = volumes[-2]
 
-    return new_volume
+    if rescale_scheme == "linear":
+        new_volume = ((v1 * p0) - (p1 * v0)) / (p0 - p1)
+        return new_volume
+    
+    if rescale_scheme == "poly":
+         if len(volumes) == 2:
+            eqs = np.poly1d(np.polyfit(volumes, pressures, 1))
+        else:
+            eqs = np.poly1d(np.polyfit(volumes, pressures, 2))
 
 
 """

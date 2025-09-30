@@ -205,6 +205,10 @@ class ConvergenceMDMaker(Maker):
         maximum number of convergence runs for energy
     max_density_runs: float
         maximum number of convergence runs for pressure
+    tol: float
+        tolerance for volume change
+    vol_rescale_scheme: string
+        scheme to use for rescaling volume, users can choose "thermo", "linear", or "poly"
     """
 
     md_maker: Maker | None = None
@@ -213,6 +217,8 @@ class ConvergenceMDMaker(Maker):
     ionic: float = 0.001
     max_energy_runs: float = 3
     max_density_runs: float = 20
+    tol: float = 1
+    vol_rescale_scheme: Literal['thermo', 'linear', 'poly'] = 'linear' # want to make sure this works
 
     # define post_init method
     def __post_init__(self) -> None:
@@ -282,15 +288,27 @@ class ConvergenceMDMaker(Maker):
                         p0 = (1/3) * stress_matrix.trace()
                         p1 = working_outputs['pressures'][0]
                         v1 = working_outputs['volumes'][0]
-                        new_volume = optimize_vol(p0, v0, p1, v1)
+                        pressures = [p0, p1]
+                        volumes = [v0, v1]
+                        new_volume = optimize_vol(volumes, pressures, rescale_scheme = self.vol_rescale_scheme)
                     else:
                         new_volume = old_volume * 1.001 # TODO: choose more appropriate rescaling parameter
                 else: # this should mean we have two (volume, pressure) pairs to use for rescaling
+                    '''
                     p0 = working_outputs['pressures'][-2]
                     v0 = working_outputs['volumes'][-2]
                     p1 = working_outputs['pressures'][-1]
                     v1 = working_outputs['volumes'][-1]
-                    new_volume = optimize_vol(p0, v0, p1, v1) 
+                    '''
+                    new_volume = optimize_vol(working_outputs['volumes'], working_outputs['pressures'], rescale_scheme = self.vol_rescale_scheme) 
+
+                # TODO: add a check for the new volume to make sure it is physical
+                new_old = float(new_volume)/float(old_volume)
+                old_new = float(old_volume)/float(new_volume)
+                if (abs(1 - new_old) > tol) or (abs(1 - old_new) > tol):
+                    print("attempted volume change too large! run again with old volume")
+                    new_volume = old_volume
+
 
                 scaling = ((float(new_volume))/(float(old_volume))) ** (1/3)
                 deformation_matrix = [np.eye(3) * scaling] 
