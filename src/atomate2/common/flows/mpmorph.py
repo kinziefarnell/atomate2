@@ -305,7 +305,7 @@ class ConvergenceMDMaker(Maker):
                 # TODO: add a check for the new volume to make sure it is physical
                 new_old = float(new_volume)/float(old_volume)
                 old_new = float(old_volume)/float(new_volume)
-                if (abs(1 - new_old) > tol) or (abs(1 - old_new) > tol):
+                if (abs(1 - new_old) > self.tol) or (abs(1 - old_new) > self.tol):
                     print("attempted volume change too large! run again with old volume")
                     new_volume = old_volume
 
