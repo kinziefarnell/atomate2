@@ -267,3 +267,10 @@ class NequipMDMaker(ForceFieldMDMaker):
 
     name: str = f"{MLFF.Nequip} MD"
     force_field_name: str = f"{MLFF.Nequip}"
+
+@dataclass
+class PyACEMDMaker(ForceFieldMDMaker):
+    """Perform an MD run with nequip."""
+
+    name: str = f"{MLFF.Pyace} MD"
+    force_field_name: str = f"{MLFF.Pyace}"

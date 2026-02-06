@@ -26,6 +26,7 @@ class MLFF(Enum):  # TODO inherit from StrEnum when 3.11+
     SevenNet = "SevenNet"
     MATPES_R2SCAN = "MatPES-r2SCAN"
     MATPES_PBE = "MatPES-PBE"
+    Pyace = "Pyace"
 
     @classmethod
     def _missing_(cls, value: Any) -> Any:

@@ -102,6 +102,11 @@ def ase_calculator(calculator_meta: str | dict, **kwargs: Any) -> Calculator | N
             from sevenn.sevennet_calculator import SevenNetCalculator
 
             calculator = SevenNetCalculator(**{"model": "7net-0"} | kwargs)
+        elif calculator_name == MLFF.Pyace:
+            import pyace
+
+            calculator = pyace.PyACECalculator(**kwargs)
+
 
     elif isinstance(calculator_meta, dict):
         calc_cls = MontyDecoder().process_decoded(calculator_meta)
