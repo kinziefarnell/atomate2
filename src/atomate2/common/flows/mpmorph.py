@@ -13,7 +13,7 @@ For information about the current flows, contact:
 
 from __future__ import annotations
 
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -162,6 +162,7 @@ class EquilibriumVolumeMaker(Maker):
                 deformed_structures[index].final_structure,
                 prev_dir=None,
             )
+
             relaxed_vol = len(working_outputs["relax"]["volume"])
             md_job.name = f"Equil Vol {md_job.name} {relaxed_vol + 1}"
 
@@ -347,7 +348,7 @@ class ConvergenceMDMaker(Maker):
         return Response(replace = new_eos_flow, output = recursive.output)
 
 @dataclass
-class MPMorphMDMaker(Maker, metaclass=ABCMeta):
+class MPMorphMDMaker(Maker, ABC):
     """Base MPMorph flow for amorphous solid equilibration.
 
     This flow uses NVT molecular dynamics to:
@@ -573,7 +574,7 @@ class FastQuenchMaker(Maker):
 
 
 @dataclass
-class SlowQuenchMaker(Maker, metaclass=ABCMeta):
+class SlowQuenchMaker(Maker, ABC):
     """Slow quench from high to low temperature structures.
 
     Quenches a provided structure with a molecular dynamics
