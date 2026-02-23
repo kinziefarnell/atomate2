@@ -37,68 +37,81 @@ _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 from jobflow import job
 
 
+def _trajectory_and_units(md_job_output):
+    """Return (trajectory, energy_key, stress_in_kbar).
+
+    Stress is already in kbar for VASP and for ASE when using emmet AtomTrajectory;
+    otherwise (ASE pymatgen Trajectory) stress is in eV/Å³.
+    """
+    try:
+        traj = md_job_output.vasp_objects["trajectory"]
+        return traj, "e_wo_entrp", True
+    except Exception:
+        traj = md_job_output.objects["trajectory"]
+        try:
+            from emmet.core.trajectory import AtomTrajectory
+            in_kbar = isinstance(traj, AtomTrajectory)
+        except ImportError:
+            in_kbar = False
+        return traj, "energy", in_kbar
+
+
+def _stress_to_3x3_kbar(stress, in_kbar: bool):
+    """Return 3x3 stress in kbar. Uses ASE convention: Voigt eV/Å³ * (-10/GPa) -> kbar."""
+    from ase.stress import voigt_6_to_full_3x3_stress
+    from ase.units import GPa
+
+    arr = np.asarray(stress, dtype=float)
+    if arr.shape == (6,):
+        if in_kbar:
+            return voigt_6_to_full_3x3_stress(arr)
+        # Voigt stress in eV/Å³ -> 3x3 in kbar (same factor as ASE schema / MP convention)
+        return voigt_6_to_full_3x3_stress(arr * (-10 / GPa))
+    if arr.shape == (3, 3):
+        if in_kbar:
+            return arr
+        return arr * (-10 / GPa)  # eV/Å³ -> kbar
+    raise ValueError(f"Stress must be Voigt (6,) or 3x3, got shape {arr.shape}")
+
+
 @job()
 def extract_trajectory_frames(md_job_output, converge_check=False):
-    energy_name = "e_wo_entrp"
-    try: # assuming trajectory is from VASP
-        trajectory = md_job_output.vasp_objects['trajectory']
-        energy_name = "e_wo_entrp"
-    except:
-        trajectory = md_job_output.objects["trajectory"]
-        energy_name = "energy"
-    trajectory_data = {"energy": [], "temperature": [], "pressure": [], "stress": []}
+    """Extract trajectory-averaged energy, temperature, pressure, and stress.
 
+    Pressure and stress are returned in kbar (VASP/emmet already in kbar; ASE
+    eV/Å³ converted with -10/GPa factor, MP convention) so the convergence
+    threshold can be specified in kbar.
+    """
+    trajectory, energy_name, stress_in_kbar = _trajectory_and_units(md_job_output)
     length = len(trajectory)
-    num_last_frames = int(length * 0.10) + 1  # will average over last 10% of frames
-
+    num_last_frames = int(length * 0.10) + 1
     if converge_check:
         num_last_frames = length
 
     frames = trajectory.frame_properties
-    energies = []
-    temperatures = []
-    pressures = []
-    stresses = []
-    for frame in frames[-num_last_frames:]:
-        # energies.append(frame["e_wo_entrp"]) # use for VASP
-        energies.append(frame[energy_name])  # use for ASE
-        # TODO: make sure correct energy is referenced based on if VASP or ASE has been run
-        temperatures.append(frame["temperature"])
-        # calculate pressure
-        stress = frame["stress"]
-        stress_matrix = np.matrix(stress)
-        stresses.append(stress)
-        pressure = stress_matrix.trace()
-        pressures.append(pressure / 3)
+    frame_slice = frames[-num_last_frames:]
 
-    sum_stresses = np.zeros((3, 3))
-    num_points = len(stresses)
-    for stress_matrix in stresses:
-        for i in [0, 1, 2]:
-            for j in [0, 1, 2]:
-                sum_stresses[i][j] = sum_stresses[i][j] + stress_matrix[i][j]
-    average_stress = np.zeros((3, 3))
-    for i in [0, 1, 2]:
-        for j in [0, 1, 2]:
-            average_stress[i][j] = sum_stresses[i][j] / num_points
+    stresses_kbar = [
+        _stress_to_3x3_kbar(f["stress"], stress_in_kbar) for f in frame_slice
+    ]
+    pressures_kbar = [np.trace(s) / 3 for s in stresses_kbar]
 
-    trajectory_data["energy"] = np.mean(energies)
-    trajectory_data["temperature"] = np.mean(temperatures)
-    trajectory_data["pressure"] = np.mean(pressures)
-    trajectory_data["stress"] = average_stress
+    trajectory_data = {
+        "energy": np.mean([f[energy_name] for f in frame_slice]),
+        "temperature": np.mean([f["temperature"] for f in frame_slice]),
+        "pressure": np.mean(pressures_kbar),
+        "stress": np.mean(stresses_kbar, axis=0),
+    }
 
     if converge_check:
         num_atoms = len(trajectory[0].species)
-        # check ionic convergence for energies
-        # copying code from mpmorph
-        norm_energies = []
-        for energy in energies:
-            norm_energies.append(energy/num_atoms)
-        mu, std = stats.norm.fit(norm_energies)
-        mu1, std1 = stats.norm.fit(norm_energies[0 : int(len(norm_energies) / 2)])
-        mu2, std2 = stats.norm.fit(norm_energies[int(len(norm_energies) / 2) :])
-        ionic = np.abs((mu2 - mu1) / mu)
-        trajectory_data["ionic"] = ionic
+        energies = [f[energy_name] for f in frame_slice]
+        norm_energies = np.array(energies) / num_atoms
+        mu, _ = stats.norm.fit(norm_energies)
+        half = len(norm_energies) // 2
+        mu1, _ = stats.norm.fit(norm_energies[:half])
+        mu2, _ = stats.norm.fit(norm_energies[half:])
+        trajectory_data["ionic"] = np.abs((mu2 - mu1) / mu)
 
     return trajectory_data
 

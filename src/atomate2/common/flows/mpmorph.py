@@ -199,7 +199,8 @@ class ConvergenceMDMaker(Maker):
     md_maker: Maker
         Maker to perform NVT MD runs
     density: float
-        convergence parameter for pressure
+        Pressure convergence threshold (kbar); converged when |pressure| < density.
+        Default 50 kbar (≈ 5 GPa).
     ionic: float
         convergence parameter for energy
     max_energy_runs: float
@@ -214,7 +215,7 @@ class ConvergenceMDMaker(Maker):
 
     md_maker: Maker | None = None
     name: str = "Convergence Maker"
-    density: float = 5
+    density: float = 50  # kbar
     ionic: float = 0.001
     max_energy_runs: float = 3
     max_density_runs: float = 20
