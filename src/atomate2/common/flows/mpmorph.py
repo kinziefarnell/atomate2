@@ -170,8 +170,12 @@ class EquilibriumVolumeMaker(Maker):
             relaxed_vol = len(working_outputs["relax"]["volume"])
             md_job.name = f"{self.name} {md_job.name} {relaxed_vol + 1}"
 
-            # Postprocess: trajectory-averaged energy, stress, pressure via md_summary_from_uuid
-            summary_job = md_summary_from_uuid(str(md_job.uuid), converge_check=False)
+            # Postprocess: trajectory-averaged energy, stress, pressure via md_summary_from_uuid.
+            # Pass md_job.output.state so jobflow adds md_job -> summary_job edge without
+            # resolving the full MD output.
+            summary_job = md_summary_from_uuid(
+                str(md_job.uuid), converge_check=False, _md_state_ref=md_job.output.state
+            )
 
             working_outputs["relax"]["energy"].append(summary_job.output["energy"])
             working_outputs["relax"]["volume"].append(md_job.output.structure.volume)
@@ -331,8 +335,12 @@ class ConvergenceMDMaker(Maker):
         conv_md_job = self.md_maker.make(structure, prev_dir=None)
         conv_md_job.name = name
 
-        # Summarize MD run from its UUID to avoid passing the full task doc as input
-        summary_job = md_summary_from_uuid(str(conv_md_job.uuid), converge_check=True)
+        # Summarize MD run from its UUID to avoid passing the full task doc as input.
+        # Pass conv_md_job.output.state so jobflow adds conv_md_job -> summary_job edge
+        # without resolving the full MD output.
+        summary_job = md_summary_from_uuid(
+            str(conv_md_job.uuid), converge_check=True, _md_state_ref=conv_md_job.output.state
+        )
         summary_job.name = "postprocess convergence run"
 
         structure = conv_md_job.output.output.structure  # last frame of conv job

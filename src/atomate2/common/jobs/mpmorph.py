@@ -117,7 +117,12 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
 
 
 @job(config=JobConfig(expose_store=True, resolve_references=False))
-def md_summary_from_uuid(md_job_uuid: str, converge_check: bool = False):
+def md_summary_from_uuid(
+    md_job_uuid: str,
+    converge_check: bool = False,
+    *,
+    _md_state_ref=None,
+):
     """
     Summarize an MD TaskDoc in the store by UUID using trajectory averages.
 
@@ -129,10 +134,16 @@ def md_summary_from_uuid(md_job_uuid: str, converge_check: bool = False):
       - `md_output_uuid`: the UUID of the full MD TaskDoc in the store.
       - `trajectory_metadata`: basic info like n_frames and n_sites.
 
-    The input to this job is just the UUID string, so downstream flows avoid
-    passing the large MD document as a job input.
+    The optional keyword-only argument ``_md_state_ref`` can be used to pass a
+    small piece of the MD job output (e.g. ``md_job.output.state``) purely to
+    establish a jobflow dependency. It is intentionally unused inside this job
+    and, with ``resolve_references=False``, will not be resolved.
     """
     from jobflow import CURRENT_JOB
+
+    if md_job_uuid is None:
+        raise ValueError("md_summary_from_uuid requires the MD job UUID string.")
+    md_job_uuid = str(md_job_uuid)
 
     store = getattr(CURRENT_JOB, "store", None)
     if store is None:
