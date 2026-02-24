@@ -45,6 +45,7 @@ class MLFF(Enum):  # TODO inherit from StrEnum when 3.11+
     Allegro = "Allegro"
     FAIRChem = "FAIRChem"
     MatterSim = "MatterSim"
+    Pyace = "Pyace"
 
     @classmethod
     def _missing_(cls, value: Any) -> Any:
@@ -353,7 +354,7 @@ def ase_calculator(
             case MLFF.SevenNet:
                 from sevenn.sevennet_calculator import SevenNetCalculator
 
-            calculator = SevenNetCalculator(**{"model": "7net-0"} | kwargs)
+                calculator = SevenNetCalculator(**{"model": "7net-0"} | kwargs)
 
             case MLFF.DeepMD:
                 from deepmd.calculator import DP
@@ -449,5 +450,7 @@ def _get_pkg_name(calculator_meta: MLFF | dict[str, Any]) -> str | None:
         return ff_pkg
     if isinstance(calculator_meta, dict):
         calc_cls = _load_calc_cls(calculator_meta)
-        return calc_cls.__module__.split(".", 1)[0]
+        if hasattr(calc_cls, "__module__"):
+            return calc_cls.__module__.split(".", 1)[0]
+        return None
     assert_never(calculator_meta)

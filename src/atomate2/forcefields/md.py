@@ -10,7 +10,11 @@ from jobflow import job
 
 from atomate2.ase.md import AseMDMaker, MDEnsemble
 from atomate2.forcefields.schemas import ForceFieldTaskDocument
-from atomate2.forcefields.utils import _FORCEFIELD_DATA_OBJECTS, ForceFieldMixin
+from atomate2.forcefields.utils import (
+    _FORCEFIELD_DATA_OBJECTS,
+    ForceFieldMixin,
+    MLFF,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
