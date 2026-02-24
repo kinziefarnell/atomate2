@@ -22,7 +22,11 @@ from jobflow import Flow, Maker, Response, job
 
 from atomate2.common.jobs.eos import MPMorphPVPostProcess, _apply_strain_to_structure
 
-from atomate2.common.jobs.mpmorph import extract_trajectory_frames, optimize_vol
+from atomate2.common.jobs.mpmorph import (
+    extract_trajectory_frames,
+    md_summary_from_uuid,
+    optimize_vol,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -156,7 +160,7 @@ class EquilibriumVolumeMaker(Maker):
             structure, deformation_matrices
         )
 
-        eos_jobs = []
+        eos_jobs: list[Job] = []
         for index in range(len(deformation_matrices)):
             md_job = self.md_maker.make(
                 deformed_structures[index].final_structure,
@@ -164,17 +168,17 @@ class EquilibriumVolumeMaker(Maker):
             )
 
             relaxed_vol = len(working_outputs["relax"]["volume"])
-            md_job.name = f"Equil Vol {md_job.name} {relaxed_vol + 1}"
+            md_job.name = f"{self.name} {md_job.name} {relaxed_vol + 1}"
 
-            postprocess_job = extract_trajectory_frames(md_job.output)
-            postprocess_job.name = f" process_traj_frames {relaxed_vol + 1}"
+            # Postprocess: trajectory-averaged energy, stress, pressure via md_summary_from_uuid
+            summary_job = md_summary_from_uuid(str(md_job.uuid), converge_check=False)
 
-            working_outputs["relax"]["energy"].append(postprocess_job.output.energy)
+            working_outputs["relax"]["energy"].append(summary_job.output["energy"])
             working_outputs["relax"]["volume"].append(md_job.output.structure.volume)
-            working_outputs["relax"]["stress"].append(postprocess_job.output.stress)
-            working_outputs["relax"]["pressure"].append(postprocess_job.output.pressure)
+            working_outputs["relax"]["stress"].append(summary_job.output["stress"])
+            working_outputs["relax"]["pressure"].append(summary_job.output["pressure"])
             eos_jobs.append(md_job)
-            eos_jobs.append(postprocess_job)
+            eos_jobs.append(summary_job)
 
         recursive = self.make(
             structure,
@@ -324,29 +328,31 @@ class ConvergenceMDMaker(Maker):
             else: # it's an energy run, just need to make sure name is right
                 name = "convergence run {}".format(working_outputs["energy_spawn_count"])
 
-        conv_md_job = self.md_maker.make(structure, prev_dir = None)
+        conv_md_job = self.md_maker.make(structure, prev_dir=None)
         conv_md_job.name = name
 
-        post_process = extract_trajectory_frames(conv_md_job.output, converge_check = True)
-        post_process.name = f"postprocess convergence run"
+        # Summarize MD run from its UUID to avoid passing the full task doc as input
+        summary_job = md_summary_from_uuid(str(conv_md_job.uuid), converge_check=True)
+        summary_job.name = "postprocess convergence run"
 
-        structure = conv_md_job.output.output.structure # this will be last frame of conv job
+        structure = conv_md_job.output.output.structure  # last frame of conv job
 
-        working_outputs["density"].append(post_process.output.pressure) 
-        working_outputs["ionic"].append(post_process.output.ionic)
-        working_outputs["pressures"].append(post_process.output.pressure)
+        # summary_job.output is a dict-like summary from md_summary_from_uuid
+        working_outputs["density"].append(summary_job.output["pressure"])
+        working_outputs["ionic"].append(summary_job.output["ionic"])
+        working_outputs["pressures"].append(summary_job.output["pressure"])
         working_outputs["volumes"].append(conv_md_job.output.volume)
 
         recursive = self.make(
-                structure,
-                prev_dir = None,
-                eos_working_outputs = eos_working_outputs,
-                working_outputs = working_outputs,
-                )
+            structure,
+            prev_dir=None,
+            eos_working_outputs=eos_working_outputs,
+            working_outputs=working_outputs,
+        )
 
-        new_eos_flow = Flow([conv_md_job, post_process, recursive], output = recursive.output)
+        new_eos_flow = Flow([conv_md_job, summary_job, recursive], output=recursive.output)
 
-        return Response(replace = new_eos_flow, output = recursive.output)
+        return Response(replace=new_eos_flow, output=recursive.output)
 
 @dataclass
 class MPMorphMDMaker(Maker, ABC):

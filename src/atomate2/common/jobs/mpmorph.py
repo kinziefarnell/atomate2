@@ -34,7 +34,7 @@ if not _DEFAULT_AVG_VOL_FILE.parents[0].exists():
 _DEFAULT_AVG_VOL_URL = "https://figshare.com/ndownloader/files/49704288"
 
 
-from jobflow import job
+from jobflow import JobConfig, job
 
 
 def _trajectory_and_units(md_job_output):
@@ -114,6 +114,66 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
         trajectory_data["ionic"] = np.abs((mu2 - mu1) / mu)
 
     return trajectory_data
+
+
+@job(config=JobConfig(expose_store=True, resolve_references=False))
+def md_summary_from_uuid(md_job_uuid: str, converge_check: bool = False):
+    """
+    Summarize an MD TaskDoc in the store by UUID using trajectory averages.
+
+    This job:
+    - Loads the full MD task document from the current JobStore using `md_job_uuid`.
+    - Reuses `extract_trajectory_frames` logic on that document to compute
+      average energy, temperature, pressure (kbar), stress, and ionic metric.
+    - Returns a small summary dict with those values plus:
+      - `md_output_uuid`: the UUID of the full MD TaskDoc in the store.
+      - `trajectory_metadata`: basic info like n_frames and n_sites.
+
+    The input to this job is just the UUID string, so downstream flows avoid
+    passing the large MD document as a job input.
+    """
+    from jobflow import CURRENT_JOB
+
+    store = getattr(CURRENT_JOB, "store", None)
+    if store is None:
+        raise RuntimeError(
+            "md_summary_from_uuid requires a JobStore; run with a manager that "
+            "provides a store and expose_store=True."
+        )
+
+    # load=True so the store inlines blob data (e.g. trajectory) from additional_stores["data"],
+    # replacing blob_uuid refs with the actual serialized objects for MontyDecoder
+    full_doc = store.get_output(md_job_uuid, load=True)
+    if full_doc is None:
+        raise ValueError(f"No MD task document found in store for uuid {md_job_uuid!r}")
+
+    # Decode Monty-serialized dict (and nested trajectory) to objects
+    from monty.serialization import MontyDecoder
+
+    full_doc = MontyDecoder().process_decoded(full_doc)
+
+    # If still a dict, coerce to ForceFieldTaskDocument for _trajectory_and_units / extract_trajectory_frames
+    if isinstance(full_doc, dict):
+        from atomate2.forcefields.schemas import ForceFieldTaskDocument
+
+        full_doc = ForceFieldTaskDocument.model_validate(full_doc)
+
+    # Reuse underlying extract_trajectory_frames function (original, undecorated)
+    summary = extract_trajectory_frames.original(
+        full_doc, converge_check=converge_check
+    )
+
+    # Basic trajectory metadata (frame count, site count)
+    traj, _, _ = _trajectory_and_units(full_doc)
+    n_frames = len(traj)
+    n_sites = len(traj[0].species) if n_frames else None
+
+    summary["md_output_uuid"] = md_job_uuid
+    summary["trajectory_metadata"] = {
+        "n_frames": n_frames,
+        "n_sites": n_sites,
+    }
+    return summary
 
 
 #def optimize_vol(p0, v0, p1, v1, rescale_scheme):
