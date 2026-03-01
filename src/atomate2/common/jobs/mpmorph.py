@@ -98,7 +98,7 @@ def extract_trajectory_frames(md_job_output, converge_check=False):
 
     trajectory_data = {
         "energy": np.mean([f[energy_name] for f in frame_slice]),
-        "temperature": np.mean([f["temperature"] for f in frame_slice]),
+        "temperature": np.mean([f.get("temperature", 0) for f in frame_slice]),
         "pressure": np.mean(pressures_kbar),
         "stress": np.mean(stresses_kbar, axis=0),
     }
