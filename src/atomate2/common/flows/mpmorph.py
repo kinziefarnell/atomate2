@@ -177,6 +177,9 @@ class EquilibriumVolumeMaker(Maker):
                 str(md_job.uuid), converge_check=False, _md_state_ref=md_job.output.state
             )
 
+            # Ensure keys exist even if prior postprocessing altered working_outputs
+            working_outputs["relax"].setdefault("pressure", [])
+
             working_outputs["relax"]["energy"].append(summary_job.output["energy"])
             working_outputs["relax"]["volume"].append(md_job.output.structure.volume)
             working_outputs["relax"]["stress"].append(summary_job.output["stress"])
